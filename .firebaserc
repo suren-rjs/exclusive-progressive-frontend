@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "e-store-0"
+  },
+  "targets": {
+    "e-store-0": {
+      "hosting": {
+        "optimaflow": [
+          "optimaflow"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { GoogleOAuthProvider } from '@react-oauth/google'
+import './firebase'
 import App from './App'
 import { AuthProvider } from './context/AuthContext'
 import { TopicProvider } from './context/TopicContext'

@@ -18,8 +18,8 @@ function App() {
 
   const isAdmin = user && ADMIN_EMAILS.includes(user.email)
 
-  const clearNotification = (index: number) => {
-      removeNotification(index)
+  const clearNotification = (id: string | undefined) => {
+    if (id) removeNotification(id)
   }
 
   if (authLoading || topicsLoading) return <div className="loading">Loading...</div>
@@ -53,10 +53,10 @@ function App() {
 
       {notifications.length > 0 && (
           <div className="notifications-container">
-              {notifications.map((notif, idx) => (
-                  <div key={idx} className="notification-toast">
+              {notifications.map((notif) => (
+                  <div key={notif.id} className="notification-toast">
                       <span>{notif.message}</span>
-                      <button onClick={() => clearNotification(idx)}>×</button>
+                      <button onClick={() => clearNotification(notif.id)}>×</button>
                   </div>
               ))}
           </div>

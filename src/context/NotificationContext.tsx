@@ -1,8 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { ref, onChildAdded, off, remove } from 'firebase/database';
+import { rtdb } from '../firebase';
 import { useAuth } from './AuthContext';
 
 interface Notification {
+  id?: string; // Realtime DB key
   userId: string;
   username: string;
   message: string;
@@ -11,7 +14,7 @@ interface Notification {
 
 interface NotificationContextType {
   notifications: Notification[];
-  removeNotification: (index: number) => void;
+  removeNotification: (id: string) => Promise<void>;
   clearNotifications: () => void;
 }
 
@@ -24,39 +27,69 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   useEffect(() => {
     if (user && user.id) {
-      // Connect to Socket.io server
-      const socketUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+      // 1. Firebase Realtime Database Listener (Primary for production)
+      const notificationsRef = ref(rtdb, `system_notifications/${user.id}`);
+      
+      const unsubscribeRTDB = onChildAdded(notificationsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          const notification: Notification = {
+            ...data,
+            id: snapshot.key as string
+          };
 
-      const newSocket = io(socketUrl, {
-        withCredentials: true,
-        transports: ['websocket', 'polling'],
-        reconnection: true,
-        reconnectionAttempts: 5
-      });
-
-      newSocket.on('connect', () => {
-        newSocket.emit('join', user.id);
-      });
-
-      newSocket.on('notification', (notification: Notification) => {
-        setNotifications(prev => [notification, ...prev]);
-        
-        // Browser native notification (optional)
-        if (Notification.permission === 'granted') {
-          new Notification('DSA Roadmap Update', {
-            body: notification.message
+          setNotifications(prev => {
+            const exists = prev.some(n => n.id === notification.id || (n.timestamp === notification.timestamp && n.message === notification.message));
+            if (exists) return prev;
+            return [notification, ...prev];
           });
+          
+          if (Notification.permission === 'granted') {
+            new Notification('DSA Roadmap Update', { body: notification.message });
+          }
         }
       });
 
-      setSocket(newSocket);
+      // 2. Socket.io Listener (Fallback for local development ONLY)
+      const socketUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+      const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      
+      let newSocket: Socket | null = null;
+
+      if (isLocal) {
+        newSocket = io(socketUrl, {
+          withCredentials: true,
+          transports: ['polling', 'websocket'],
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+          timeout: 10000
+        });
+
+        newSocket.on('connect', () => {
+          newSocket?.emit('join', user.id);
+        });
+
+        newSocket.on('notification', (notification: Notification) => {
+          setNotifications(prev => {
+            const exists = prev.some(n => n.timestamp === notification.timestamp && n.message === notification.message);
+            if (exists) return prev;
+            return [notification, ...prev];
+          });
+        });
+
+        setSocket(newSocket);
+      }
 
       if (Notification.permission === 'default') {
         Notification.requestPermission();
       }
 
       return () => {
-        newSocket.disconnect();
+        off(notificationsRef, 'child_added', unsubscribeRTDB);
+        if (newSocket) {
+          newSocket.disconnect();
+        }
       };
     } else {
       if (socket) {
@@ -66,11 +99,23 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [user]);
 
-  const removeNotification = (index: number) => {
-    setNotifications(prev => prev.filter((_, i) => i !== index));
+  const removeNotification = async (id: string) => {
+    if (user && user.id && id) {
+      try {
+        const notificationRef = ref(rtdb, `system_notifications/${user.id}/${id}`);
+        await remove(notificationRef);
+      } catch (err) {
+        console.error('Failed to remove notification from RTDB:', err);
+      }
+    }
+    setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
-  const clearNotifications = () => {
+  const clearNotifications = async () => {
+    if (user && user.id) {
+      const notificationsRef = ref(rtdb, `system_notifications/${user.id}`);
+      await remove(notificationsRef);
+    }
     setNotifications([]);
   };
 
